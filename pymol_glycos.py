@@ -15,12 +15,22 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description= 'Add o=linked glycan to specified SER or THR in a PDB')
     parser.add_argument('-i','--infile', nargs='?', type=str, dest='inPDB', help = 'Path to the input PDB', required=True)
     parser.add_argument('-o','--outfile', nargs='?', type=str, dest='outPDB', help = 'Path to the output PDB', required=True)
-    parser.add_argument('-r','--resid', nargs='+', type=int, dest='targetResidue', help = 'Residue number of residue to glycosylate', required=True)
-    parser.add_argument('-c','--chain', nargs='+', type=str, dest='targetChain', help = 'Chain letter of Residue to glycosylate', required=True)
-    parser.add_argument('-g','--glycanpath', nargs='?', type=str, dest='glycanPath', help = 'Template of glycan o-linked to residue', required=True)
+    parser.add_argument('-r','--resid', nargs='+', type=str, dest='targetResidues', help = 'Residues to glycosylate. Format = XN; X = Chain ID, N = Residue number.', required=True)
+    parser.add_argument('-g','--glycanpath', nargs='?', type=str, dest='glycanPath', help = 'Path to templates of glycan o-linked to residue', required=True)
     args = parser.parse_args()
     return args
-
+    
+def residue_list_parse(combined_list):
+    split_list = []
+    for res in combined_list:
+        if res[0].isalpha() and res[1:].isdigit():
+            split_list.append([res[0], res[1:]])
+        else:
+            print ("Residues must be specified in the following format = XN; X = Chain ID, N = Residue number.")
+            sys.exit(1)
+    return split_list
+    
+    
 pymol.finish_launching()
 
 # --------------------
@@ -29,42 +39,75 @@ pymol.finish_launching()
 
 # Interpret command line arguments
 args = parse_arguments()
-targetName = args.inPDB.split('/')[-1].split('.')[0]
+targetStructure = args.inPDB.split('/')[-1].split('.')[0]
 
 # Load targetPDB structure
-pymol.cmd.load(args.inPDB, targetName)
+pymol.cmd.load(args.inPDB, targetStructure)
 
 # Define the selection used to superimpose glycosylated 
 # template with the target THR or SER 
 atomMask = ' and name CA+N+C+O+CB'
 
+# Split input list of residue identifications into a list of
+# lists containing separated chain ID and residue number
+targetResList = residue_list_parse(args.targetResidues)
 
-# Load structures - targetPDB and glycan
-pymol.cmd.load(args.inPDB, targetName)
+for residue in targetResList:
+    
+    chainID = residue[0]
+    resNo = residue[1]
+    strResNo = str(resNo)
 
-glycanName = 'glycan'
-pymol.cmd.load(args.glycanPDB, glycanName)
+    # O-links only occur on SER and THR residues 
+    # Check to see that a valid residue type was specified
+    targetResidue = targetStructure + " and chain " + chainID + " and resi " + strResNo    
+    resType = pymol.cmd.get_model(targetResidue + " and chain " + chainID, 1).atom[0].resn
+    
+    if resType == 'SER' or resType == 'THR':
+        
+        # Load template glycan (o-linked to a SER or THR as appropriate)
+        # The name of the resulting pymol pbject is stored in glycanStructure
+        if resType == 'SER':
+            glycanPDB = os.path.join(args.glycanPath,'ser_o-link.pdb')
+        else:
+            glycanPDB = os.path.join(args.glycanPath,'thr_o-link.pdb')
+        glycanStructure = 'glycan'
+        pymol.cmd.load(glycanPDB, glycanStructure)
 
+        # Align the linked residue in the template with the target residue
+        # using the atoms selected in atomMask
+        targetAlignSelection = targetResidue + atomMask
+        linkResidue = glycanStructure + " and resn " + resType
+        linkResidueSelection = linkResidue + atomMask
+        glycanSelection = glycanStructure + " and (not resn " + resType + ")"
+        pymol.cmd.align(linkResidueSelection, targetAlignSelection)
 
-targetResidue = targetName + " and chain " + args.targetChain + " and resi " + str(args.targetResidue)
-targetAlignSelection = targetResidue + atomMask
-linkResidue = glycanName + " and resn THR"
-linkResidueSelection = linkResidue + atomMask
-glycanSelection = glycanName + " and (not resn THR)"
+        # Remove the target residue in the original structure
+        pymol.cmd.remove(targetResidue)
+        # Renumber the linked residue in the glycan link template to that of
+        # the removed target residue
+        pymol.cmd.alter(linkResidue, 'resi = ' + strResNo)
+        # Alter the chainID of the link and glycan
+        pymol.cmd.alter(glycanStructure, "chain = '" +  chainID + "'")
+        # Give the glycan a residue number after that of the existing atoms
+        # of the chain containing the target link residue
+        glycanResNo = int(pymol.cmd.get_model(targetStructure + " and chain " + chainID, 1).atom[-1].resi) + 1
+        pymol.cmd.alter(glycanSelection, 'resi = ' + str(glycanResNo))
 
-pymol.cmd.align(linkResidueSelection, targetAlignSelection)
+        # Create a new structure containing combining the target and the new link
+        # residue and linked glycan
+        pymol.cmd.create('glycan_added', glycanStructure + ' or ' + targetStructure)
+        pymol.cmd.delete(glycanStructure)
+        pymol.cmd.delete(targetStructure)
+        # Rename the newly constructed structure to become the new target
+        # for any subsequent glycan additions
+        pymol.cmd.set_name('glycan_added',targetStructure)
+    else:
+        print "Selection '" + targetResidue + "' is not a SER or THR residue and has been ignored."
 
-targetChain = pymol.cmd.get_model(targetResidue, 1).atom[0].chain
-pymol.cmd.remove(targetResidue)
-pymol.cmd.alter(linkResidue, 'resi = ' + str(args.targetResidue))
-pymol.cmd.alter(glycanName, "chain = '" +  args.targetChain + "'")
-
-lastRes = int(pymol.cmd.get_model(targetName + " and chain A", 1).atom[-1].resi) + 1
-pymol.cmd.alter(glycanSelection, 'resi = ' + str(lastRes))
-
-pymol.cmd.create('glycan_added', glycanName + ' or ' + targetName)
+# Sort and save the glycosylated structure
 pymol.cmd.sort
-pymol.cmd.save(args.outPDB, 'glycan_added')
+pymol.cmd.save(args.outPDB, targetStructure)
 
 
 # Get out!
