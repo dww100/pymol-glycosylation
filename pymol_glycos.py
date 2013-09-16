@@ -39,6 +39,7 @@ pymol.finish_launching()
 
 # Interpret command line arguments
 args = parse_arguments()
+# Use the file name to provide the name for the target structure object
 targetStructure = args.inPDB.split('/')[-1].split('.')[0]
 
 # Load targetPDB structure
