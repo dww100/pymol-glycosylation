@@ -90,10 +90,15 @@ for residue in targetResList:
         pymol.cmd.alter(linkResidue, 'resi = ' + strResNo)
         # Alter the chainID of the link and glycan
         pymol.cmd.alter(glycanStructure, "chain = '" +  chainID + "'")
-        # Give the glycan a residue number after that of the existing atoms
+        # Give the glycan residues a residue number after that of the existing atoms
         # of the chain containing the target link residue
-        glycanResNo = int(pymol.cmd.get_model(targetStructure + " and chain " + chainID, 1).atom[-1].resi) + 1
-        pymol.cmd.alter(glycanSelection, 'resi = ' + str(glycanResNo))
+        newResNo = int(pymol.cmd.get_model(targetStructure + " and chain " + chainID, 1).atom[-1].resi) + 1    
+        firstGlycanRes = int(pymol.cmd.get_model(glycanSelection,1).atom[0].resi)
+        lastGlycanRes = int(pymol.cmd.get_model(glycanSelection,1).atom[-1].resi)
+        
+        for oldResNo in range(firstGlycanRes, lastGlycanRes + 1):
+            pymol.cmd.alter(glycanSelection + ' and resi ' + str(oldResNo), 'resi = ' + str(newResNo))
+            newResNo += 1
 
         # Create a new structure containing combining the target and the new link
         # residue and linked glycan
@@ -107,7 +112,7 @@ for residue in targetResList:
         print "Selection '" + targetResidue + "' is not a SER or THR residue and has been ignored."
 
 # Sort and save the glycosylated structure
-pymol.cmd.sort
+pymol.cmd.sort(targetStructure)
 pymol.cmd.save(args.outPDB, targetStructure)
 
 
