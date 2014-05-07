@@ -1,6 +1,24 @@
 #!/usr/bin/env python
-#
-#
+"""
+Script to add 'standard' glycans to proteins.
+Pymol is used to edit the structures and generate CONECT records.
+Created models are suitable as input to the Glycan Reader function of
+CHARMM-GUI in order to generate CHARMM PSF/PDB pairs for simulation.
+"""
+
+# Copyright 2014 University College London
+
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+
+#    http://www.apache.org/licenses/LICENSE-2.0
+
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import __main__
 __main__.pymol_argv = [ 'pymol', '-qc'] # Quiet and no GUI
@@ -129,11 +147,14 @@ glycan_index = []
 
 with open(args.out_pdb, 'r') as f:
     for line in f:
+        # Identify and record atoms within glycan residues
+        # We need to keep CONECT records associated with them
         if (line[0:6] in ['ATOM  ', 'HETATM']):
             if int(line[22:26]) in glycan_residues:
                 glycan_index.append(line[6:11])
             out.write(line)   
         elif line[0:6] == 'CONECT':
+            # Keep connect records for the identified glycan atoms
             if line[6:11] in glycan_index:
                 out.write(line)
         else:
