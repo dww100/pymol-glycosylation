@@ -4,6 +4,9 @@ Script to add 'standard' glycans to proteins.
 Pymol is used to edit the structures and generate CONECT records.
 Created models are suitable as input to the Glycan Reader function of
 CHARMM-GUI in order to generate CHARMM PSF/PDB pairs for simulation.
+
+Note: The method is totally naive and matches the atoms of the link residue
+(except for the backbone N, C and O) in the target PDB to that in the template.
 """
 
 # Copyright 2014 University College London
@@ -39,7 +42,7 @@ def parse_arguments():
     parser.add_argument('-t','--targetfile', nargs='?', type=str, dest='target_file',
                         help = 'YAML file describing the residues to glycosylate.', required=True)
     parser.add_argument('-g','--glycanpath', nargs='?', type=str, dest='glycan_path',
-                        help = 'Path to templates of glycan o-linked to residue', default = '.')
+                        help = 'Path to templates of glycan o-linked to residue', default = __file__.rsplit(os.sep,1)[0])
     args = parser.parse_args()
     return args
 
@@ -107,13 +110,12 @@ for residue in target_res_list:
         glycan_selection = glycan_structure + " and (not resn " + res_type + ")"
         pymol.cmd.align(link_res_selection, target_align_selection)
 
-        # Remove the target residue in the original structure
-        pymol.cmd.remove(target_residue)
-        # Renumber the linked residue in the glycan link template to that of
-        # the removed target residue
-        pymol.cmd.alter(linkResidue, 'resi = ' + str_res_no)
-        # Alter the chain_id of the link and glycan
+        # Remove the link residue in the template
+        pymol.cmd.remove(linkResidue)
+
+        # Alter the chain_id of the template glycan
         pymol.cmd.alter(glycan_structure, "chain = '" +  chain_id + "'")
+        
         # Give the glycan residues a residue number after that of the existing atoms
         # of the chain containing the target link residue
         new_res_no = int(pymol.cmd.get_model(target_structure + " and chain " + chain_id, 1).atom[-1].resi) + 1
@@ -125,14 +127,17 @@ for residue in target_res_list:
             glycan_residues.append(new_res_no)
             new_res_no += 1
 
-        # Create a new structure containing combining the target and the new link
-        # residue and linked glycan
+        # Create a new structure combining the original target structure and the added glycan
         pymol.cmd.create('glycan_added', glycan_structure + ' or ' + target_structure)
+        
+        # Delete both old structures
         pymol.cmd.delete(glycan_structure)
         pymol.cmd.delete(target_structure)
+        
         # Rename the newly constructed structure to become the new target
         # for any subsequent glycan additions
         pymol.cmd.set_name('glycan_added',target_structure)
+        
     else:
         print "Selection '" + target_residue + "' is not a ASN, SER or THR residue and has been ignored."
 
@@ -165,5 +170,3 @@ os.rename('tmp.pdb',args.out_pdb)
 
 # Get out!
 pymol.cmd.quit()
-
-
