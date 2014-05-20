@@ -151,7 +151,7 @@ pymol.stored.glycan_residues = []
 # Identify by the concatenation of the chain and residue number
 pymol.cmd.iterate("not pol and name C1","stored.glycan_residues.append(chain + resi)")
 
-pymol.cmd.save(args.out_pdb, target_structure)
+pymol.cmd.save(args.out_pdb, target_structure + ' and not hydro')
 
 out = open('tmp.pdb','w')
 
