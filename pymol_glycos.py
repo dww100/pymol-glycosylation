@@ -77,6 +77,8 @@ atom_mask = ' and not name N+C+O'
 f = open(args.target_file, 'r')
 target_res_list = yaml.load(f)
 
+gly2prot_link = {}
+
 for residue in target_res_list:
 
     chain_id = residue['chain']
@@ -95,10 +97,14 @@ for residue in target_res_list:
         # The name of the resulting pymol pbject is stored in glycan_structure
         if res_type == 'SER':
             glycan_pdb = os.path.join(args.glycan_path,'ser_o-link.pdb')
+            identifier = chain_id + str_res_no + 'OG'
         elif res_type == 'THR':
             glycan_pdb = os.path.join(args.glycan_path,'thr_o-link.pdb')
+            identifier = chain_id + str_res_no + 'OG1'
         else:
             glycan_pdb = os.path.join(args.glycan_path,'n-link.pdb')
+            identifier = chain_id + str_res_no + 'ND1'
+            
         glycan_structure = 'glycan'
         pymol.cmd.load(glycan_pdb, glycan_structure)
 
@@ -122,11 +128,11 @@ for residue in target_res_list:
         first_glycan_res = int(pymol.cmd.get_model(glycan_selection,1).atom[0].resi)
         last_glycan_res = int(pymol.cmd.get_model(glycan_selection,1).atom[-1].resi)
 
+        gly2prot_link[chain_id + str(new_res_no)] = identifier
+
         for old_res_no in range(first_glycan_res, last_glycan_res + 1):
             pymol.cmd.alter(glycan_selection + ' and resi ' + str(old_res_no), 'resi = ' + str(new_res_no))
             new_res_no += 1
-
-        
 
         # Create a new structure combining the original target structure and the added glycan
         pymol.cmd.create('glycan_added', glycan_structure + ' or ' + target_structure)
@@ -155,20 +161,37 @@ pymol.cmd.save(args.out_pdb, target_structure + ' and not hydro')
 
 out = open('tmp.pdb','w')
 
+protein_link_atoms = gly2prot_link.values()
+glycan_link_res = gly2prot_link.keys()
+
+prot2gly_link = dict (zip(protein_link_atoms,glycan_link_res))
+
 glycan_index = []
+
+glycan_link_index = {}
+prot_link_index = {}
 
 with open(args.out_pdb, 'r') as f:
     for line in f:
         # Identify and record atoms within glycan residues
         # We need to keep CONECT records associated with them
         if (line[0:6] in ['ATOM  ', 'HETATM']):
-            if line[21] + line[22:26].strip() in pymol.stored.glycan_residues:
-                glycan_index.append(line[6:11])
+            chain_res = line[21] + line[22:26].strip()
+            index = line[6:11]
+            if chain_res in pymol.stored.glycan_residues:                
+                glycan_index.append(index)
+                if (chain_res in glycan_link_res) and line[12:16].strip() == 'C1':
+                    glycan_link_index[index] = prot_link_index[gly2prot_link[chain_res]]
+            elif chain_res + line[12:16].strip() in protein_link_atoms:
+                prot_link_index[chain_res + line[12:16].strip()] = index
             out.write(line)   
         elif line[0:6] == 'CONECT':
             # Keep connect records for the identified glycan atoms
             if line[6:11] in glycan_index:
-                out.write(line)
+                if line[6:11] in glycan_link_index:
+                    out.write(line[:-1] + glycan_link_index[line[6:11]] + '\n')
+                else:
+                    out.write(line)
         else:
             out.write(line)
 out.close()
