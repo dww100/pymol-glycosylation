@@ -40,9 +40,11 @@ def parse_arguments():
     parser.add_argument('-o','--output', nargs='?', type=str, dest='out_pdb', 
                         help = 'Path to the output PDB', required=True)
     parser.add_argument('-t','--targetfile', nargs='?', type=str, dest='target_file',
-                        help = 'YAML file describing the residues to glycosylate.', required=True)
+                        help = 'Path to YAML file describing the residues to glycosylate.', 
+                        required=True)
     parser.add_argument('-g','--glycanpath', nargs='?', type=str, dest='glycan_path',
-                        help = 'Path to templates of glycan o-linked to residue', default = __file__.rsplit(os.sep,1)[0])
+                        help = 'Path to templates of glycan o-linked to residue', 
+                        default = __file__.rsplit(os.sep,1)[0])                       
     args = parser.parse_args()
     return args
 
@@ -74,8 +76,6 @@ atom_mask = ' and not name N+C+O'
 # Read in YAML file containing the target residues
 f = open(args.target_file, 'r')
 target_res_list = yaml.load(f)
-
-glycan_residues = []
 
 for residue in target_res_list:
 
@@ -124,8 +124,9 @@ for residue in target_res_list:
 
         for old_res_no in range(first_glycan_res, last_glycan_res + 1):
             pymol.cmd.alter(glycan_selection + ' and resi ' + str(old_res_no), 'resi = ' + str(new_res_no))
-            glycan_residues.append(new_res_no)
             new_res_no += 1
+
+        
 
         # Create a new structure combining the original target structure and the added glycan
         pymol.cmd.create('glycan_added', glycan_structure + ' or ' + target_structure)
@@ -144,6 +145,12 @@ for residue in target_res_list:
 # Sort and save the glycosylated structure
 pymol.cmd.sort(target_structure)
 
+pymol.stored.glycan_residues = []
+
+# Create a list of all glycan residues
+# Identify by the concatenation of the chain and residue number
+pymol.cmd.iterate("not pol and name C1","stored.glycan_residues.append(chain + resi)")
+
 pymol.cmd.save(args.out_pdb, target_structure)
 
 out = open('tmp.pdb','w')
@@ -155,7 +162,7 @@ with open(args.out_pdb, 'r') as f:
         # Identify and record atoms within glycan residues
         # We need to keep CONECT records associated with them
         if (line[0:6] in ['ATOM  ', 'HETATM']):
-            if int(line[22:26]) in glycan_residues:
+            if line[21] + line[22:26].strip() in pymol.stored.glycan_residues:
                 glycan_index.append(line[6:11])
             out.write(line)   
         elif line[0:6] == 'CONECT':
