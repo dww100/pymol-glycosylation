@@ -161,14 +161,20 @@ pymol.cmd.save(args.out_pdb, target_structure + ' and not hydro')
 
 out = open('tmp.pdb','w')
 
+# Get a list of protein link atom identifiers (ChainResidAtomname)
 protein_link_atoms = gly2prot_link.values()
+# Get the glycan residues involved in the link to the protein (ChainResid)
 glycan_link_res = gly2prot_link.keys()
 
-prot2gly_link = dict (zip(protein_link_atoms,glycan_link_res))
-
+# List to contain the index values of all glycan residues
+# All this farago is necessary as pymol creates TER cards with 
+# atom numbers/index in the PDB output but doesn't store them internally.
+# Consequently the indices used in pymol differ from those in the output.
 glycan_index = []
 
+# Dictionary: Key = glycan link atom, Value = protein link residue index
 glycan_link_index = {}
+# Dictionary: Key = protein link atom identifier (ChainResidAtomname),  Value = protein link atom index
 prot_link_index = {}
 
 with open(args.out_pdb, 'r') as f:
@@ -176,19 +182,30 @@ with open(args.out_pdb, 'r') as f:
         # Identify and record atoms within glycan residues
         # We need to keep CONECT records associated with them
         if (line[0:6] in ['ATOM  ', 'HETATM']):
+            # chain_res = ChainResid
             chain_res = line[21] + line[22:26].strip()
             index = line[6:11]
-            if chain_res in pymol.stored.glycan_residues:                
+            
+            if chain_res in pymol.stored.glycan_residues:
+                
                 glycan_index.append(index)
+                
                 if (chain_res in glycan_link_res) and line[12:16].strip() == 'C1':
+                    # For the C1 atom of link residues we need to record the
+                    # index of the linked protein atom in a dictionary with the
+                    # C1 atosm index as the key
                     glycan_link_index[index] = prot_link_index[gly2prot_link[chain_res]]
+                    
             elif chain_res + line[12:16].strip() in protein_link_atoms:
+                
                 prot_link_index[chain_res + line[12:16].strip()] = index
+                
             out.write(line)   
         elif line[0:6] == 'CONECT':
             # Keep connect records for the identified glycan atoms
             if line[6:11] in glycan_index:
                 if line[6:11] in glycan_link_index:
+                    # Add in the link with the protein protein
                     out.write(line[:-1] + glycan_link_index[line[6:11]] + '\n')
                 else:
                     out.write(line)
