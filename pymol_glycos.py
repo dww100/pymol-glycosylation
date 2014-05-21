@@ -41,11 +41,19 @@ def parse_arguments():
                         help = 'Path to the output PDB', required=True)
     parser.add_argument('-t','--targetfile', nargs='?', type=str, dest='target_file',
                         help = 'Path to YAML file describing the residues to glycosylate.', 
-                        required=True)
+                        default = None)
+    parser.add_argument('-e','--existingfile', nargs='?', type=str, dest='exist_file',
+                        help = 'Path to YAML file describing existing glycan linkages', 
+                        default = None)
     parser.add_argument('-g','--glycanpath', nargs='?', type=str, dest='glycan_path',
                         help = 'Path to templates of glycan o-linked to residue', 
                         default = __file__.rsplit(os.sep,1)[0])                       
     args = parser.parse_args()
+    
+    if (args.exist_file == None) and (args.target_file == None):
+        print "No files containing linkages to be made were provided."
+        sys.exit()
+    
     return args
 
 pymol.finish_launching()
@@ -53,7 +61,6 @@ pymol.finish_launching()
 # --------------------
 # Start of main script
 # --------------------
-
 
 
 # Setting to write CONECT records to PDB
@@ -73,11 +80,20 @@ pymol.cmd.load(args.in_pdb, target_structure)
 # template with the target ASN, THR or SER
 atom_mask = ' and not name N+C+O'
 
-# Read in YAML file containing the target residues
-f = open(args.target_file, 'r')
-target_res_list = yaml.load(f)
+if args.target_file != None:
+    # Read in YAML file containing the target residues
+    f = open(args.target_file, 'r')
+    target_res_list = yaml.load(f)
+else:
+    target_res_list = []
 
 gly2prot_link = {}
+    
+if args.exist_file != None:
+    f = open(args.exist_file, 'r')
+    exist_links = yaml.load(f)
+    for link in exist_links:
+        gly2prot_link[link['gly_chain'] + str(link['gly_res'])] = link['pro_chain'] + str(link['pro_res']) + link['pro_atm']
 
 for residue in target_res_list:
 
@@ -103,7 +119,7 @@ for residue in target_res_list:
             identifier = chain_id + str_res_no + 'OG1'
         else:
             glycan_pdb = os.path.join(args.glycan_path,'n-link.pdb')
-            identifier = chain_id + str_res_no + 'ND1'
+            identifier = chain_id + str_res_no + 'ND2'
             
         glycan_structure = 'glycan'
         pymol.cmd.load(glycan_pdb, glycan_structure)
