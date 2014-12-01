@@ -27,6 +27,7 @@ import __main__
 __main__.pymol_argv = [ 'pymol', '-qc'] # Quiet and no GUI
 
 import sys, time, os
+import shutil
 import argparse
 import pymol
 import yaml
@@ -95,14 +96,17 @@ def get_protein_link_info(sel_text):
             output['template'] = 'ser_o-link.pdb'
             output['link_res'] = 'SER'
             output['link_atom'] = 'OG'
+            output['sel_text'] = sel_text + ' and name ' + output['link_atom']
         elif res_type == 'THR':
             output['template'] = 'thr_o-link.pdb'
             output['link_res'] = 'THR'
             output['link_atom'] = 'OG1'
+            output['sel_text'] = sel_text + ' and name ' + output['link_atom']
         else:
             output['template'] = 'n-link.pdb'
             output['link_res'] = 'ASN'
-            output['link_atom'] = 'ND2'    
+            output['link_atom'] = 'ND2'
+            output['sel_text'] = sel_text + ' and name ' + output['link_atom']
     
     return output
 
@@ -142,19 +146,28 @@ if args.target_file != None:
     target_res_list = yaml.load(f)
 else:
     target_res_list = []
-    
+ 
+link_atms = []
+   
 if args.exist_file != None:
     # Read YAML file containing glycan links supposedly present in the original structure
     f = open(args.exist_file, 'r')
     exist_links = yaml.load(f)
     for link in exist_links:
         
-        pro_sel_text = target_structure + ' and chain ' + link['pro_chain'] + ' and resi ' + str(link['pro_res'])
+        if 'pro_seg' in link and link['pro_seg']:
+            pro_sel_text = target_structure + ' and chain ' + link['pro_chain'] + ' and resi ' + str(link['pro_res']) + ' and segi ' + link['pro_seg']
+        else:
+            pro_sel_text = target_structure + ' and chain ' + link['pro_chain'] + ' and resi ' + str(link['pro_res'])
         link_info = get_protein_link_info(pro_sel_text)
+        link_atms.append(link_info)
         
         if link_info:
             # Ensure that the glycosydic linkage is included
-            gly_link_res = target_structure + ' and chain ' + link['gly_chain'] + ' and resi ' + str(link['gly_res'])
+            if 'gly_seg' in link and link['gly_seg']:
+                gly_link_res = target_structure + ' and chain ' + link['gly_chain'] + ' and resi ' + str(link['gly_res']) + ' and segi ' + link['gly_seg']
+            else:
+                gly_link_res = target_structure + ' and chain ' + link['gly_chain'] + ' and resi ' + str(link['gly_res'])
             create_gly_link(pro_sel_text, link_info['link_atom'], gly_link_res)
 
 for residue in target_res_list:
@@ -169,12 +182,42 @@ for residue in target_res_list:
     
     target_residue = target_structure + " and chain " + chain_id + " and resi " + str_res_no
     link_info = get_protein_link_info(target_residue)
+    link_atms.append(link_info)
 
     if link_info:
         
         target_res_selection = pymol.cmd.get_model(target_residue + " and chain " + chain_id, 1)
         res_type = target_res_selection.atom[0].resn
+        
         seg_id = target_res_selection.atom[0].segi
+
+        atms = pymol.cmd.get_model(target_structure + " and chain " + chain_id, 1).atom
+
+        segs = []
+
+        for atm in atms:
+            if atm.segi not in segs:
+                segs.append(atm.segi)
+        
+        last_seg = ('',0)
+
+        prot_seg = chain_id + 'PRO'
+
+        if segs:
+            if (len(segs) > 1) and (prot_seg in segs):
+    
+                for seg in segs:
+                
+                    if seg != prot_seg:
+          
+                        carb_no = int(seg.strip(chain_id).strip('S'))
+            
+                        if  carb_no > last_seg[1]:
+                
+                            last_seg = (seg , carb_no)
+                            
+            seg_start = chain_id + 'S'
+            seg_id = seg_start + '{0:02d}'.format(last_seg[1] + 1)
             
         glycan_structure = 'glycan'
         pymol.cmd.load(os.path.join(args.glycan_path,link_info['template']), glycan_structure)
@@ -196,7 +239,13 @@ for residue in target_res_list:
         
         # Give the glycan residues a residue number after that of the existing atoms
         # of the chain containing the target link residue
-        new_res_no = int(pymol.cmd.get_model(target_structure + " and chain " + chain_id, 1).atom[-1].resi) + 1
+        
+        if seg_id[0:2] == seg_start:
+            start_new_gly = 1
+        else:
+            start_new_gly = int(pymol.cmd.get_model(target_structure + " and chain " + chain_id, 1).atom[-1].resi) + 1
+            
+        new_res_no = start_new_gly
         first_glycan_res = int(pymol.cmd.get_model(glycan_selection,1).atom[0].resi)
         last_glycan_res = int(pymol.cmd.get_model(glycan_selection,1).atom[-1].resi)
 
@@ -209,7 +258,13 @@ for residue in target_res_list:
         
         # Ensure that the glycan-protein linkage is incorporated in the new model
         new_pro_link = 'glycan_added and chain ' + chain_id + ' and resi ' + str_res_no
-        new_gly_link = 'glycan_added and chain ' + chain_id + ' and resi ' + str(new_res_no)
+        
+        if seg_id[0:2] == seg_start:
+            
+            new_gly_link = 'glycan_added and chain ' + chain_id + ' and resi ' + str(start_new_gly) + ' and segi ' + seg_id
+
+        else:
+            new_gly_link = 'glycan_added and chain ' + chain_id + ' and resi ' + str(start_new_gly)
         create_gly_link(new_pro_link, link_info['link_atom'], new_gly_link)
         
         
@@ -229,5 +284,60 @@ pymol.cmd.sort(target_structure)
 
 pymol.cmd.save(args.out_pdb, target_structure + ' and not hydro')
 
+allowed = []
+
+for atm in pymol.cmd.get_model(target_structure + " and segi *S*", 1).atom:
+    allowed.append(atm.index)
+
+for link in link_atms:
+    
+    for atm in pymol.cmd.get_model(link['sel_text'], 1).atom:
+        allowed.append(atm.index)
+
+#str(atm.index).rjust(5)
+
+
 # Get out!
 pymol.cmd.quit()
+
+f = open(args.out_pdb, 'r')
+
+tmp_file = open('tmp_pdb', 'w')
+
+allowed_str = []
+
+for line in f:
+    if line.startswith('CONECT'):
+        content = line[6:]
+        revised = ''
+        print_line = True
+        for ndx in range(0, len(content), 5):
+            if ndx == 0 and content[ndx:ndx+5] not in allowed_str:
+                print_line = False
+                break
+            if content[ndx:ndx+5] in allowed_str:
+                revised += content[ndx:ndx+5]
+
+        if print_line:            
+            tmp_file.write('CONECT' + revised + '\n')
+            
+    elif line.startswith('TER'):
+        ter_ndx = int(line[6:11])
+        allowed_str = []
+        for i in range(len(allowed)):
+            if allowed[i] > ter_ndx:
+                allowed[i] += 1
+            allowed_str.append(str(allowed[i]).rjust(5))
+            
+        tmp_file.write(line)
+        
+    elif line[17:20] == 'HIS':
+        
+        tmp_file.write(line[:17] + 'HSE' + line[20:])
+        
+    else:
+        
+        tmp_file.write(line)
+
+tmp_file.close()
+shutil.move('tmp_pdb', args.out_pdb)
